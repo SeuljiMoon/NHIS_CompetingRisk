@@ -1,0 +1,178 @@
+---
+title: "1. Propensity_score_matching"
+author: "SeuljiMoon"
+date: "2023-08-28"
+output: html_document
+---
+
+install.packages
+
+```{r global-options, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+if(!require("ggplot2")) install.packages("ggplot2")
+if(!require("tableone")) install.packages("tableone")
+if(!require("data.table")) install.packages("data.table")
+if(!require("ggpubr")) install.packages("ggpubr")
+if(!require("gridExtra")) install.packages("gridExtra")
+if(!require("cobalt")) install.packages("cobalt")
+if(!require("MatchIt")) install.packages("MatchIt")
+if(!require("magrittr")) install.packages("magrittr")
+if(!require("moonBook")) install.packages("moonBook")
+if(!require("dplyr")) install.packages("dplyr")
+
+library(ggplot2)
+library(tableone)
+library(data.table)
+library(ggpubr) library(gridExtra)
+library(cobalt)
+library(MatchIt)
+library(magrittr)
+library(moonBook)
+library(dplyr)
+```
+
+### read dataset
+
+```{r}
+frac_entire8 <- fread("fracture_match18_entire_0726.csv")
+colnames(frac_entire8)
+```
+
+### data manipulation
+
+```{r}
+como_names <- c("mi","CHF","CD","PVD","DEM","HP","IM","CPD","PUD","MLD","RD","dia","cancer","AIDS")
+factor_vars <- c("sex",paste0(como_names,"_yes"),"insu_g2","ageg4")
+
+frac_entire8 <- frac_entire8 |> mutate(death = ifelse(is.na(DTH_ASSMD_DT), 0, 1),
+                                       end_date = "20201231",
+                                       day_frac2 = ymd(frac_date),
+                                           day_index2=ymd(indexdate),
+                                           day_end2=ymd(end_date),
+                                           day_death2=ymd(DTH_ASSMD_DT)) |> 
+  mutate(death_time = ifelse(death==0, difftime(as.Date(day_end2,"%Y%m%d"),
+                                                as.Date(day_index2,"%Y%m%d"),units="days"),
+                             difftime(as.Date(day_death2,"%Y%m%d"),
+                                      as.Date(day_index2,"%Y%m%d"),units="days"))) |> 
+  mutate(death_years=death_time/365.25) 
+
+```
+
+### Propensity Score matching with R
+
+This analysis will utilize the **MatchIt** package to perform a 1:4 matching
+
+```{r}
+frac_entire8_be <- frac_entire8 
+row.names(frac_entire8) <- 1:nrow(frac_entire8)
+frac_entire8$ID <- 1:nrow(frac_entire8)
+
+set.seed(1)
+m.out2 <-with(frac_entire8, matchit(c90_yn~age+indexyear+insu_g2+sex+mi_yes+HP_yes+DEM_yes+RD_yes+CHF_yes+PVD_yes+CD_yes+IM_yes+CPD_yes+
+                   PUD_yes+MLD_yes+dia_yes+cancer_yes, data=as.data.table(frac_entire8[,c(factor_vars,"indexyear","age","c90_yn")]), method = "nearest", m.order = "random",caliper = 0.25, ratio = 3))
+
+```
+
+### Create matching set data
+While the `match.data` function within the **MatchIt** package generates the matched dataset all at once, due to differences in package versions within the NHIS environment, we need to **manually create the matched dataset.**
+```{r}
+tab <- data.frame(m.out2$match.matrix)
+id.temp <- row.names(tab)
+temp <- data.frame(id.temp, m.out2$match.matrix)
+temp2 <- temp[!is.na(temp[,2:4]),]
+temp2[,1] <- as.numeric(as.character(temp2[,1]))
+temp2[,2] <- as.numeric(as.character(temp2[,2]))
+temp2[,3] <- as.numeric(as.character(temp2[,3]))
+temp2[,4] <- as.numeric(as.character(temp2[,4]))
+
+n.matched <- dim(temp2)[1]
+MATCH <- rep(NA, dim(frac_entire8)[1])
+for (ii in 1:n.matched) {
+  a <- temp2[ii,1]
+  b <- temp2[ii,2]
+  c <- temp2[ii,3]
+  d <- temp2[ii,4]
+  
+  MATCH[a] <- ii
+  MATCH[b] <- ii
+  MATCH[c] <- ii
+  MATCH[d] <- ii
+}
+
+frac_entire8$ps <- m.out2$distance
+frac_entire8$MATCH <- MATCH
+frac_entire8_be$MATCH <- MATCH
+frac_entire8.match <- frac_entire8[!is.na(frac_entire8_be$MATCH),]
+
+
+frac_entire8.match # final matching set
+frac_entire8.match[order(frac_entire8.match$MATCH)] # order
+```
+
+
+
+
+### Check Matching results
+- SMD (Standardized Mean Difference) Check 
+```{r}
+bal.tab(m.out2, m.threshold = 0.1, un = TRUE)
+
+# before matching
+tb1_4<-CreateTableOne(data=frac_entire8[,.SD,.SDcols=c(factor_vars,"indexyear","age","c90_yn", "death_years")],factorVars = c(factor_vars), smd=TRUE, strata="c90_yn", test=F); print(tb1_4,nonnormal = c("death_years"),smd=T)
+
+# after matching
+tb1_1<-CreateTableOne(data=frac_entire8.match[,.SD,.SDcols=c(factor_vars,"indexyear","age","c90_yn", "death_years")],factorVars = c(factor_vars), smd=TRUE, strata="c90_yn", test=F); print(tb1_1,smd=T)
+
+```
+
+
+### Baseline characteristics table
+```{r}
+# before matching
+mycsv(mytable(c90_yn~death_years+sex+age+insu_g2+ageg4+mi_yes+CHF_yes+CD_yes+PVD_yes+DEM_yes+HP_yes+IM_yes+
+                CPD_yes+PUD_yes+MLD_yes+RD_yes+dia_yes+cancer_yes+AIDS_yes,data=frac_entire8),file="~\\frac_entire_mytable8.csv")
+# after matching
+mycsv(mytable(c90_yn~sex+age+insu_g2+ageg4+mi_yes+CHF_yes+CD_yes+PVD_yes+DEM_yes+HP_yes+IM_yes+
+                CPD_yes+PUD_yes+MLD_yes+RD_yes+dia_yes+cancer_yes+AIDS_yes,data=frac_entire8.match),file="~\\frac_entire_mytable.csv")
+
+```
+
+### Covariate plots
+```{r}
+
+# love plot 
+a <- love.plot(bal.tab(m.out2, m.thershold=0.1)) 
+
+editable_graph <- dml(ggobj=a)
+doc<-read_pptx() # create new file
+doc<-add_slide(doc)
+doc<-ph_with(x=doc, editable_graph,
+             location=ph_location_type(type="body"))
+print(doc, target="~\\0726_fracture_covariate_plot.pptx")
+
+a <- bal.plot(m.out2, "distance", which = "both", type="density") +
+  theme_test()
+
+editable_graph <- dml(ggobj=a)
+doc<-add_slide(doc)
+doc<-ph_with(x=doc, editable_graph,
+             location=ph_location_type(type="body"))
+print(doc, target="~\\0726_fracture_covariate_plot.pptx")
+
+# for loop 
+como_names<-c("mi","CHF","CD","PVD","DEM","HP","IM","CPD","PUD","MLD","RD","dia","cancer")
+factor_vars<-c("sex",paste0(como_names,"_yes"),"insu_g2")
+
+for (ii in 1:length(factor_vars)) {
+  a <- bal.plot(m.out2, var.name = factor_vars[ii], which ="both") +
+    theme_test()
+  editable_graph <- dml(ggobj=a)
+  doc<-add_slide(doc)
+  doc<-ph_with(x=doc, editable_graph,
+               location=ph_location_type(type="body"))
+  print(doc, target="~\\0726_fracture_covariate_plot.pptx")
+}
+
+```
+
+

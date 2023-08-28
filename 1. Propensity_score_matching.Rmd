@@ -5,8 +5,7 @@ date: "2023-08-28"
 output: html_document
 ---
 
-install.packages
-
+### install.packages
 ```{r global-options, include=FALSE}
 knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
 if(!require("ggplot2")) install.packages("ggplot2")
@@ -60,7 +59,7 @@ frac_entire8 <- frac_entire8 |> mutate(death = ifelse(is.na(DTH_ASSMD_DT), 0, 1)
 
 ### Propensity Score matching with R
 
-This analysis will utilize the **MatchIt** package to perform a 1:4 matching
+This analysis will utilize the **MatchIt** package to perform a 1:3 matching
 
 ```{r}
 frac_entire8_be <- frac_entire8 
@@ -118,10 +117,12 @@ frac_entire8.match[order(frac_entire8.match$MATCH)] # order
 bal.tab(m.out2, m.threshold = 0.1, un = TRUE)
 
 # before matching
-tb1_4<-CreateTableOne(data=frac_entire8[,.SD,.SDcols=c(factor_vars,"indexyear","age","c90_yn", "death_years")],factorVars = c(factor_vars), smd=TRUE, strata="c90_yn", test=F); print(tb1_4,nonnormal = c("death_years"),smd=T)
+tb1_4<-CreateTableOne(data=frac_entire8[,.SD,.SDcols=c(factor_vars,"indexyear","age","c90_yn", "death_years")],factorVars = c(factor_vars), smd=TRUE, strata="c90_yn", test=F)
+print(tb1_4,nonnormal = c("death_years"),smd=T)
 
 # after matching
-tb1_1<-CreateTableOne(data=frac_entire8.match[,.SD,.SDcols=c(factor_vars,"indexyear","age","c90_yn", "death_years")],factorVars = c(factor_vars), smd=TRUE, strata="c90_yn", test=F); print(tb1_1,smd=T)
+tb1_1<-CreateTableOne(data=frac_entire8.match[,.SD,.SDcols=c(factor_vars,"indexyear","age","c90_yn", "death_years")],factorVars = c(factor_vars), smd=TRUE, strata="c90_yn", test=F)
+print(tb1_1,nonnormal = c("death_years"),smd=T)
 
 ```
 

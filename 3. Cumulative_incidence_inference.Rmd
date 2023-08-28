@@ -1,0 +1,205 @@
+---
+title: "3. Fine-Gray Analysis"
+author: "SeuljiMoon"
+date: "2023-08-28"
+output: html_document
+---
+
+### install.packages
+```{r global-options, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+if(!require("ggplot2")) install.packages("ggplot2")
+if(!require("tableone")) install.packages("tableone")
+if(!require("data.table")) install.packages("data.table")
+if(!require("ggpubr")) install.packages("ggpubr")
+if(!require("gridExtra")) install.packages("gridExtra")
+if(!require("cobalt")) install.packages("cobalt")
+if(!require("MatchIt")) install.packages("MatchIt")
+if(!require("magrittr")) install.packages("magrittr")
+if(!require("moonBook")) install.packages("moonBook")
+if(!require("dplyr")) install.packages("dplyr")
+if(!require("parallel")) install.packages("parallel")
+if(!require("survival")) install.packages("survival")
+if(!require("cmprsk")) install.packages("cmprsk")
+if(!require("lubridate")) install.packages("lubridate")
+if(!require("survplot")) install.packages("survplot")
+     
+library(data.table); library(dplyr);
+library(magrittr);library(parallel);library(ggplot2);library(tableone)
+library(survival);library(survminer);library(cmprsk)
+library(lubridate)
+library(survplot)
+library(moonBook)
+```
+
+### Data manipulation
+```{r}
+source("2. Cumulative_incidence_plot.Rmd")
+```
+
+
+### Estimate cumulative incidence and it's 95% CI at time points 
+ - Estimate cumulative incidence functions from competing risks data and test equality across groups
+ - Using `cuminc` function in **cmprsk** package
+ - Status value : 0 - censoring / 1 - event / 2 - competing risk
+ - Group : 1 - Case (Multiple myeloma) / 2 - Control
+
+```{r}
+ci.model0<-cuminc(ftime=frac_entire$surv_years,
+                 fstatus=frac_entire$event3,
+                 group=frac_entire$c90_yn,cencode = 0)
+
+# frac event
+citable_control0 <- ci.model0$`0 1` %>% as.data.table %>% .[,1:3]
+citable_control0$std <- sqrt(citable_control0$var)
+citable_case0<-ci.model0$`1 1` %>% as.data.table %>% .[,1:3]
+citable_case0$std <- sqrt(citable_case0$var)
+  
+# competing evnet
+citable_control_d0<-ci.model0$`0 2` %>% as.data.table %>% .[,1:3]
+citable_control_d0$std <- sqrt(citable_control_d0$var)
+citable_case_d0<-ci.model0$`1 2` %>% as.data.table %>% .[,1:3]
+citable_case_d0$std <- sqrt(citable_case_d0$var)
+  
+tt <- c()
+for (i in 1:8) {
+  th <- data.table(
+    year = i,
+    case = paste0(round(as.numeric(citable_case0[time>i][1,2]),3), "(", 
+                  (round(as.numeric(citable_case0[time>i][1,2]),3) - 1.96*round(as.numeric(citable_case0[time>i][1,4]),3)), "-",
+                  (round(as.numeric(citable_case0[time>i][1,2]),3) + 1.96*round(as.numeric(citable_case0[time>i][1,4]),3)), ")") ,
+    control = paste0(round(as.numeric(citable_control0[time>i][1,2]),3), "(", 
+                     (round(as.numeric(citable_control0[time>i][1,2]),3) - 1.96*round(as.numeric(citable_control0[time>i][1,4]),3)), "-",
+                     (round(as.numeric(citable_control0[time>i][1,2]),3) + 1.96*round(as.numeric(citable_control0[time>i][1,4]),3)), ")") ,
+    p_val = ifelse(ci.model0$Test[1,2]<0.001,"<0.001",round(ci.model0$Test[1,2],3)),
+    
+    case_death = paste0(round(as.numeric(citable_case_d0[time>i][1,2]),3), "(", 
+                        (round(as.numeric(citable_case_d0[time>i][1,2]),3) - 1.96*round(as.numeric(citable_case_d0[time>i][1,4]),3)), "-",
+                        (round(as.numeric(citable_case_d0[time>i][1,2]),3) + 1.96*round(as.numeric(citable_case_d0[time>i][1,4]),3)), ")") ,
+    control_death = paste0(round(as.numeric(citable_control_d0[time>i][1,2]),3), "(", 
+                     (round(as.numeric(citable_control_d0[time>i][1,2]),3) - 1.96*round(as.numeric(citable_control_d0[time>i][1,4]),3)), "-",
+                     (round(as.numeric(citable_control_d0[time>i][1,2]),3) + 1.96*round(as.numeric(citable_control_d0[time>i][1,4]),3)), ")") ,
+    p_val = ifelse(ci.model0$Test[1,2]<0.001,"<0.001",round(ci.model0$Test[1,2],3))
+    
+  )
+
+tt <- rbind(tt,th)
+}
+
+```
+
+
+Apply 1-year landmark 
+```{r}
+frac_1year <- frac_entire[frac_entire$surv_years >= 1,]
+frac_1year <- as.data.table(frac_1year)
+```
+
+```{r}
+ci.model0<-cuminc(ftime=frac_1year$surv_years,
+                  fstatus=frac_1year$event3,
+                  group=frac_1year$c90_yn,cencode = 0)
+
+
+# frac event
+citable_control0 <- ci.model0$`0 1` %>% as.data.table %>% .[,1:3]
+citable_control0$std <- sqrt(citable_control0$var)
+citable_case0<-ci.model0$`1 1` %>% as.data.table %>% .[,1:3]
+citable_case0$std <- sqrt(citable_case0$var)
+
+# competing evnet
+citable_control_d0<-ci.model0$`0 2` %>% as.data.table %>% .[,1:3]
+citable_control_d0$std <- sqrt(citable_control_d0$var)
+citable_case_d0<-ci.model0$`1 2` %>% as.data.table %>% .[,1:3]
+citable_case_d0$std <- sqrt(citable_case_d0$var)
+
+tt <- c()
+for (i in 1:8) {
+  th <- data.table(
+    year = i,
+    case = paste0(round(as.numeric(citable_case0[time>i][1,2]),3), "(", 
+                  (round(as.numeric(citable_case0[time>i][1,2]),3) - 1.96*round(as.numeric(citable_case0[time>i][1,4]),3)), "-",
+                  (round(as.numeric(citable_case0[time>i][1,2]),3) + 1.96*round(as.numeric(citable_case0[time>i][1,4]),3)), ")") ,
+    control = paste0(round(as.numeric(citable_control0[time>i][1,2]),3), "(", 
+                     (round(as.numeric(citable_control0[time>i][1,2]),3) - 1.96*round(as.numeric(citable_control0[time>i][1,4]),3)), "-",
+                     (round(as.numeric(citable_control0[time>i][1,2]),3) + 1.96*round(as.numeric(citable_control0[time>i][1,4]),3)), ")") ,
+    p_val = ifelse(ci.model0$Test[1,2]<0.001,"<0.001",round(ci.model0$Test[1,2],3)),
+    
+    case_death = paste0(round(as.numeric(citable_case_d0[time>i][1,2]),3), "(", 
+                        (round(as.numeric(citable_case_d0[time>i][1,2]),3) - 1.96*round(as.numeric(citable_case_d0[time>i][1,4]),3)), "-",
+                        (round(as.numeric(citable_case_d0[time>i][1,2]),3) + 1.96*round(as.numeric(citable_case_d0[time>i][1,4]),3)), ")") ,
+    control_death = paste0(round(as.numeric(citable_control_d0[time>i][1,2]),3), "(", 
+                           (round(as.numeric(citable_control_d0[time>i][1,2]),3) - 1.96*round(as.numeric(citable_control_d0[time>i][1,4]),3)), "-",
+                           (round(as.numeric(citable_control_d0[time>i][1,2]),3) + 1.96*round(as.numeric(citable_control_d0[time>i][1,4]),3)), ")") ,
+    p_val = ifelse(ci.model0$Test[1,2]<0.001,"<0.001",round(ci.model0$Test[1,2],3))
+    
+  )
+  
+  tt <- rbind(tt,th)
+  
+}
+tt
+```
+
+
+
+### Estimate cumulative incidence and it's 95% CI at time points - Fracture subtypes 
+```{r}
+tt <- c()
+for (i in c("spine","hip","upper")) {
+  for (j in c(0,1)) {
+    
+    df <- frac_entire[frac_entire$surv_years >= j ,] # landmark analysis
+    df <- as.data.table(df)
+    
+    ci.model0<-with(df,cuminc(ftime=surv_years,
+                      fstatus=get(paste0("event3_",i)),
+                      group=c90_yn,cencode = 0))
+    
+    # frac event
+    citable_control0 <- ci.model0$`0 1` %>% as.data.table %>% .[,1:3]
+    citable_control0$std <- sqrt(citable_control0$var)
+    citable_case0<-ci.model0$`1 1` %>% as.data.table %>% .[,1:3]
+    citable_case0$std <- sqrt(citable_case0$var)
+    
+    # competing evnet
+    citable_control_d0<-ci.model0$`0 2` %>% as.data.table %>% .[,1:3]
+    citable_control_d0$std <- sqrt(citable_control_d0$var)
+    citable_case_d0<-ci.model0$`1 2` %>% as.data.table %>% .[,1:3]
+    citable_case_d0$std <- sqrt(citable_case_d0$var)
+    
+    
+    for (ii in 1:8) {
+      th <- data.table(
+        dfset = paste0(i," subtype & landmark ",j,"year"),
+        year = ii,
+        
+        case = paste0(round(as.numeric(citable_case0[time>ii][1,2]),3), "(", 
+                      (round(as.numeric(citable_case0[time>ii][1,2]),3) - 1.96*round(as.numeric(citable_case0[time>ii][1,4]),3)), "-",
+                      (round(as.numeric(citable_case0[time>ii][1,2]),3) + 1.96*round(as.numeric(citable_case0[time>ii][1,4]),3)), ")") ,
+        control = paste0(round(as.numeric(citable_control0[time>ii][1,2]),3), "(", 
+                         (round(as.numeric(citable_control0[time>ii][1,2]),3) - 1.96*round(as.numeric(citable_control0[time>ii][1,4]),3)), "-",
+                         (round(as.numeric(citable_control0[time>ii][1,2]),3) + 1.96*round(as.numeric(citable_control0[time>ii][1,4]),3)), ")") ,
+        p_val = ifelse(ci.model0$Test[1,2]<0.001,"<0.001",round(ci.model0$Test[1,2],3)),
+        
+        case_death = paste0(round(as.numeric(citable_case_d0[time>ii][1,2]),3), "(", 
+                            (round(as.numeric(citable_case_d0[time>ii][1,2]),3) - 1.96*round(as.numeric(citable_case_d0[time>ii][1,4]),3)), "-",
+                            (round(as.numeric(citable_case_d0[time>ii][1,2]),3) + 1.96*round(as.numeric(citable_case_d0[time>ii][1,4]),3)), ")") ,
+        control_death = paste0(round(as.numeric(citable_control_d0[time>ii][1,2]),3), "(", 
+                               (round(as.numeric(citable_control_d0[time>ii][1,2]),3) - 1.96*round(as.numeric(citable_control_d0[time>ii][1,4]),3)), "-",
+                               (round(as.numeric(citable_control_d0[time>ii][1,2]),3) + 1.96*round(as.numeric(citable_control_d0[time>ii][1,4]),3)), ")") ,
+        p_val = ifelse(ci.model0$Test[1,2]<0.001,"<0.001",round(ci.model0$Test[1,2],3))
+        
+      )
+      
+      tt <- rbind(tt,th)
+    }
+  }
+}
+
+tt
+
+
+write.csv(tt, "~\\fracture_subgroup_cuminc.csv")
+```
+
